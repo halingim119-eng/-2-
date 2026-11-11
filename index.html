@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>소스 가져오기</title>
+<style>
+:root{
+  --bg:#f6f7f9; --card:#ffffff; --fg:#14171c; --muted:#6a7280; --line:#dde1e7;
+  --accent:#0b6bff; --accent-fg:#ffffff; --code-bg:#0f1218; --code-fg:#d8e0ee; --err:#d4380d; --ok:#1a8f4c;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#0d0f13;--card:#161a21;--fg:#eceff4;--muted:#8b94a3;--line:#262c36;--accent:#4c8dff;--accent-fg:#06090f;--code-bg:#090b0f;--code-fg:#d8e0ee;--err:#ff7a59;--ok:#4cd38a}
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+  padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+main{max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+h1{font-size:1.35rem;margin:8px 0 0;letter-spacing:-.01em}
+p.sub{margin:0;color:var(--muted);font-size:.92rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+form{display:flex;flex-direction:column;gap:10px}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+input[type=url],input[type=text]{flex:1 1 220px;min-width:0;font:inherit;font-size:16px;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+input:focus,button:focus-visible,textarea:focus{outline:2px solid var(--accent);outline-offset:1px}
+button{font:inherit;font-weight:600;padding:12px 16px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--fg);cursor:pointer;min-height:46px}
+button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+button:disabled{opacity:.5;cursor:default}
+.status{font-size:.9rem;color:var(--muted);min-height:1.4em}
+.status.err{color:var(--err)}
+.status.ok{color:var(--ok)}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.actions button{flex:1 1 120px}
+.meta{display:flex;gap:12px;flex-wrap:wrap;font-size:.82rem;color:var(--muted)}
+.code{background:var(--code-bg);color:var(--code-fg);border-radius:10px;overflow:auto;max-height:60vh;-webkit-overflow-scrolling:touch}
+.code textarea{display:block;width:100%;min-height:50vh;border:0;background:transparent;color:inherit;font:12.5px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;padding:12px;resize:vertical;white-space:pre;overflow:auto;tab-size:2}
+details summary{cursor:pointer;color:var(--muted);font-size:.9rem}
+details div{margin-top:8px;font-size:.88rem;color:var(--muted)}
+label.chk{display:flex;align-items:center;gap:8px;font-size:.9rem;color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+  <h1>소스 가져오기</h1>
+  <p class="sub">주소를 넣으면 페이지 소스(view-source)를 가져와서 복사하거나 파일로 저장할 수 있어요.</p>
+
+  <section class="card">
+    <form id="f">
+      <div class="row">
+        <input id="url" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://example.com" required>
+        <button class="primary" id="go" type="submit">가져오기</button>
+      </div>
+      <label class="chk"><input type="checkbox" id="fmt"> 줄바꿈 정리(보기 좋게)</label>
+      <div class="status" id="st" role="status" aria-live="polite"></div>
+    </form>
+  </section>
+
+  <section class="card" id="out" hidden>
+    <div class="meta" id="meta"></div>
+    <div class="actions" style="margin:10px 0">
+      <button class="primary" id="copy" type="button">복사</button>
+      <button id="save" type="button">파일로 저장</button>
+      <button id="share" type="button" hidden>공유/저장</button>
+    </div>
+    <div class="code"><textarea id="src" readonly spellcheck="false" wrap="off"></textarea></div>
+  </section>
+
+  <details class="card">
+    <summary>사용 팁 / 안 될 때</summary>
+    <div>
+      브라우저는 보안 때문에 다른 사이트를 직접 읽을 수 없어서 무료 중계 서버(프록시)를 차례로 시도해요.
+      로그인이 필요한 페이지나 봇 차단이 있는 사이트는 가져오지 못할 수 있어요.
+      자바스크립트로 나중에 그려지는 내용은 PC의 페이지 소스 보기와 같이 포함되지 않아요.
+      안정적으로 쓰려면 아래 코드의 <code>MY_PROXY</code>에 본인 Cloudflare Worker 주소를 넣으세요.
+    </div>
+  </details>
+</main>
+
+<script>
+// 본인 프록시가 있으면 여기에 넣으세요. 예: "https://my-proxy.workers.dev/?url="
+const MY_PROXY = "";
+
+const $ = id => document.getElementById(id);
+const st = $("st"), src = $("src");
+let current = { text: "", name: "source.html" };
+
+function setStatus(msg, cls){ st.textContent = msg; st.className = "status" + (cls ? " " + cls : ""); }
+
+function normalize(u){
+  u = u.trim();
+  if(!/^https?:\/\//i.test(u)) u = "https://" + u;
+  return new URL(u).href;
+}
+
+async function timedFetch(url, ms = 15000){
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  try{
+    const r = await fetch(url, { signal: ctrl.signal, redirect: "follow" });
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    return await r.text();
+  } finally { clearTimeout(t); }
+}
+
+function strategies(target){
+  const e = encodeURIComponent(target);
+  const list = [];
+  if(MY_PROXY) list.push(["내 프록시", MY_PROXY + e]);
+  list.push(["직접", target]);
+  list.push(["corsproxy", "https://corsproxy.io/?url=" + e]);
+  list.push(["allorigins", "https://api.allorigins.win/raw?url=" + e]);
+  list.push(["codetabs", "https://api.codetabs.com/v1/proxy?quest=" + target]);
+  return list;
+}
+
+function prettify(html){
+  return html.replace(/>\s*</g, ">\n<");
+}
+
+function fileName(u){
+  const x = new URL(u);
+  let p = x.pathname.replace(/\/+$/, "").split("/").pop();
+  let base = x.hostname.replace(/^www\./, "") + (p && !p.includes(".") ? "-" + p : "");
+  base = base.replace(/[^a-z0-9._-]+/gi, "_");
+  return base + ".html";
+}
+
+function showResult(text, url){
+  current.text = text;
+  current.name = fileName(url);
+  src.value = text;
+  const bytes = new Blob([text]).size;
+  const lines = text.split("\n").length;
+  $("meta").innerHTML = "";
+  [new URL(url).hostname, lines.toLocaleString() + "줄", (bytes/1024).toFixed(1) + " KB"].forEach(s => {
+    const sp = document.createElement("span"); sp.textContent = s; $("meta").appendChild(sp);
+  });
+  $("out").hidden = false;
+  $("out").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+$("f").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  let target;
+  try{ target = normalize($("url").value); }
+  catch{ setStatus("주소 형식이 올바르지 않아요.", "err"); return; }
+
+  $("go").disabled = true;
+  $("out").hidden = true;
+  const tries = strategies(target);
+  let lastErr = "";
+  for(let i = 0; i < tries.length; i++){
+    const [name, u] = tries[i];
+    setStatus("가져오는 중… (" + name + " " + (i+1) + "/" + tries.length + ")");
+    try{
+      let text = await timedFetch(u);
+      if(!text || !text.trim()) throw new Error("빈 응답");
+      if($("fmt").checked) text = prettify(text);
+      showResult(text, target);
+      setStatus(name + " 방식으로 가져왔어요.", "ok");
+      $("go").disabled = false;
+      return;
+    }catch(e){
+      lastErr = name + ": " + (e.name === "AbortError" ? "시간 초과" : e.message);
+    }
+  }
+  setStatus("가져오지 못했어요. 마지막 오류 → " + lastErr, "err");
+  $("go").disabled = false;
+});
+
+async function copyText(text){
+  try{
+    await navigator.clipboard.writeText(text);
+    return true;
+  }catch{
+    src.focus(); src.select(); src.setSelectionRange(0, text.length);
+    try{ return document.execCommand("copy"); }catch{ return false; }
+  }
+}
+
+$("copy").addEventListener("click", async () => {
+  const ok = await copyText(current.text);
+  setStatus(ok ? "클립보드에 복사했어요." : "복사에 실패했어요. 텍스트를 길게 눌러 직접 복사해 주세요.", ok ? "ok" : "err");
+});
+
+function makeBlob(){ return new Blob([current.text], { type: "text/html;charset=utf-8" }); }
+
+$("save").addEventListener("click", () => {
+  const url = URL.createObjectURL(makeBlob());
+  const a = document.createElement("a");
+  a.href = url; a.download = current.name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  setStatus("저장을 시작했어요: " + current.name, "ok");
+});
+
+// 모바일: 공유 시트로 '파일에 저장' 가능
+(function(){
+  try{
+    const probe = new File(["x"], "a.txt", { type: "text/plain" });
+    if(navigator.canShare && navigator.canShare({ files: [probe] })) $("share").hidden = false;
+  }catch{}
+})();
+
+$("share").addEventListener("click", async () => {
+  try{
+    const file = new File([current.text], current.name, { type: "text/plain" });
+    await navigator.share({ files: [file], title: current.name });
+  }catch(e){
+    if(e && e.name !== "AbortError") setStatus("공유에 실패했어요. '파일로 저장'을 써 보세요.", "err");
+  }
+});
+</script>
+</body>
+</html>
